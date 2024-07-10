@@ -47,9 +47,67 @@ func ConcurrentMutex(url string, fetcher Fetcher, f *fetchState) {
 	return
 }
 
+func ConcurrentChannel(url string, fetcher Fetcher) {
+	newUrls := make(chan []string)
+
+	visited := make(map[string]bool)
+
+	/*
+		kickstart the channel
+		with a thread because it sleeps until the value is consumed
+	*/
+	go func() {
+		newUrls <- []string{url}
+	}()
+
+	/*
+		n represents the number of worker returns left to process
+		even if the return is nothing
+	*/
+	n := 1
+
+	/*
+		Each item in the newUrls channel is the url list from a fetch call
+		or an empty list if it failed
+	*/
+	for urls := range newUrls {
+		// Loop over the previous results, if any
+		for _, nextUrl := range urls {
+			if visited[nextUrl] {
+				continue
+			}
+
+			visited[nextUrl] = true
+
+			// New URL, new worker result to expect
+			n += 1
+
+			go func(u string, newUrls chan []string, fetcher Fetcher) {
+				urls, err := fetcher.Fetch(u)
+				if err != nil {
+					newUrls <- []string{}
+				} else {
+					newUrls <- urls
+				}
+			}(nextUrl, newUrls, fetcher)
+		}
+
+		// One result passed to channel has been processed
+		n -= 1
+		if n == 0 {
+			// Break needed because we don't specify a close channel operation anywhere
+			break
+		}
+	}
+
+}
+
 func main() {
+	golang := "http://golang.org/"
 	// Concurrently fetch each URL using a Mutex to prevent race conditions
-	ConcurrentMutex("http://golang.org/", fetcher, buildState())
+	//ConcurrentMutex(golang, fetcher, buildState())
+
+	ConcurrentChannel(golang, fetcher)
 }
 
 // Given Mock Fetcher
