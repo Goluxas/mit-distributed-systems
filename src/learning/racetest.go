@@ -24,6 +24,7 @@ func main() {
 		and all the go thread scopes
 	*/
 	var mu sync.Mutex
+	cond := sync.NewCond(&mu)
 
 	for i := 0; i < 10; i++ {
 		go func() {
@@ -36,15 +37,31 @@ func main() {
 				count++
 			}
 			finished++
+			cond.Broadcast()
 		}()
 	}
 
+	/* While Loop to wait, using only a mutex
 	for {
 		mu.Lock()
 		if count >= 5 || finished == 10 {
 			break
 		}
 		mu.Unlock()
+	}
+	*/
+
+	/* While Loop to wait using Cond
+	 */
+	mu.Lock()
+	for count < 5 && finished != 10 {
+		/* cond.Wait
+		1. Unlocks the mu, freeing the shared variables
+		2. waits for a cond.Broadcast
+		3. Locks the mu, proceeds back through the while loop chec
+		4. repeats
+		*/
+		cond.Wait()
 	}
 
 	if count >= 5 {
