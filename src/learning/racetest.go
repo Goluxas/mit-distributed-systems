@@ -7,7 +7,13 @@ import (
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	//rand.Seed(time.Now().UnixNano())
+
+	// rand.Seed() is deprecated as of Go 1.20
+	// rand automatically seeds randomly now
+	// if you need to seed a specific number, use this format
+
+	// rand.New(rand.NewSource(20))
 
 	count := 0
 	finished := 0
