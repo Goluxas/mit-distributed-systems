@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync"
 	"time"
 
 	"math/rand"
@@ -17,10 +18,20 @@ func main() {
 
 	count := 0
 	finished := 0
+	/*
+		Using a mutex lock/unlock prevents the race condition
+		when accessing the variables count and finished that are used in both this main scope
+		and all the go thread scopes
+	*/
+	var mu sync.Mutex
 
 	for i := 0; i < 10; i++ {
 		go func() {
 			vote := requestVote()
+
+			mu.Lock()
+			defer mu.Unlock()
+
 			if vote {
 				count++
 			}
@@ -28,8 +39,12 @@ func main() {
 		}()
 	}
 
-	for count < 5 && finished != 10 {
-		// wait
+	for {
+		mu.Lock()
+		if count >= 5 || finished == 10 {
+			break
+		}
+		mu.Unlock()
 	}
 
 	if count >= 5 {
