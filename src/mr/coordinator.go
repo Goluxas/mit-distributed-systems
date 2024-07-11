@@ -6,14 +6,70 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
+
+type InputStatus string
+
+/*
+  ready		= file waiting for a task
+  started	= file is currently being mapped or reduced
+  done		= file has been processed
+*/
 
 type Coordinator struct {
 	// Your definitions here.
-
+	mu           sync.Mutex
+	inputFiles   []string
+	nReduce      int
+	mapStatus    map[string]InputStatus
+	mapDone      bool
+	reduceStatus []InputStatus
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// iterate over mapDone and return the first unstarted map task
+	mapTask := false
+	if !c.mapDone {
+		for filename, status := range c.mapStatus {
+			if status == "ready" {
+				// Coordinator tracking
+				c.mapStatus[filename] = "started"
+				mapTask = true
+
+				// Reply for RPC
+				reply.TaskType = "MAP"
+				reply.InputFiles = []string{filename}
+				reply.NReduce = c.nReduce
+				reply.Error = ""
+
+				return nil
+			}
+		}
+	}
+
+	// if no map tasks are left to assign, check if mapping is done
+	if !mapTask {
+		mapDone := true
+		for _, status := range c.mapStatus {
+			if status != "done" {
+				mapDone = false
+			}
+		}
+		c.mapDone = mapDone
+	}
+
+	// if mapping is done, assign a reduce task
+	if c.mapDone {
+		// TODO
+	}
+
+	return nil
+}
 
 // an example RPC handler.
 //
@@ -44,6 +100,21 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 
+	// TEMPORARY
+	ret = c.mapDone
+
+	/*
+		// ACTUAL -- if mapping is done and reducing is done then we're all done
+		if c.mapDone {
+			ret = true
+			for _, status := range c.reduceStatus {
+				if status != "done" {
+					ret = false
+				}
+			}
+		}
+	*/
+
 	return ret
 }
 
@@ -54,6 +125,18 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
+	c.inputFiles = files
+	c.nReduce = nReduce
+
+	c.mapStatus = make(map[string]InputStatus)
+	for _, filename := range c.inputFiles {
+		c.mapStatus[filename] = "ready"
+	}
+
+	c.reduceStatus = make([]InputStatus, nReduce)
+	for i := range c.reduceStatus {
+		c.reduceStatus[i] = "ready"
+	}
 
 	c.server()
 	return &c

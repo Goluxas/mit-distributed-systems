@@ -68,9 +68,11 @@ func writeMapOutput(kvs []KeyValue, nReduce int) {
 	// open temp output files for writing
 
 	// TEMPORARY
-	for kv := range kvs {
-		println(kv)
-	}
+	/*
+		for _, kv := range kvs {
+			println("This is the fake write output", kv.Key, kv.Value)
+		}
+	*/
 }
 
 func reduceFiles(reducef func(string, []string) string, inputFiles []string) {
