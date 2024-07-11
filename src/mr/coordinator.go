@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strconv"
 	"sync"
 )
 
@@ -23,8 +24,10 @@ type Coordinator struct {
 	inputFiles   []string
 	nReduce      int
 	mapStatus    map[string]InputStatus
+	mapNextId    int
 	mapDone      bool
 	reduceStatus []InputStatus
+	reduceNextId int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -43,6 +46,8 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 
 				// Reply for RPC
 				reply.TaskType = "MAP"
+				reply.TaskID = strconv.Itoa(c.mapNextId)
+				c.mapNextId++
 				reply.InputFiles = []string{filename}
 				reply.NReduce = c.nReduce
 				reply.Error = ""

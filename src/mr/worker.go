@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"strconv"
 )
 
 // Map functions return a slice of KeyValue.
@@ -42,7 +43,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		// Execute assigned task
 		if getTaskReply.TaskType == "MAP" {
-			mapFiles(mapf, getTaskReply.InputFiles, getTaskReply.NReduce)
+			mapFiles(mapf, getTaskReply.InputFiles, getTaskReply.NReduce, getTaskReply.TaskID)
 		} else if getTaskReply.TaskType == "REDUCE" {
 			reduceFiles(reducef, getTaskReply.InputFiles)
 		}
@@ -50,7 +51,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 }
 
-func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce int) {
+func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce int, taskId string) {
 	kvs := []KeyValue{}
 	for _, filename := range inputFiles {
 		contents, err := os.ReadFile(filename)
@@ -61,18 +62,38 @@ func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce
 		kvs = append(kvs, newKvs...) // join two slices with ... expansion
 
 	}
-	writeMapOutput(kvs, nReduce)
+	writeMapOutput(kvs, nReduce, taskId)
 }
 
-func writeMapOutput(kvs []KeyValue, nReduce int) {
+func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) {
 	// open temp output files for writing
-
-	// TEMPORARY
-	/*
-		for _, kv := range kvs {
-			println("This is the fake write output", kv.Key, kv.Value)
+	tempFiles := make([]*os.File, nReduce)
+	for i := 0; i < nReduce; i++ {
+		tempFile, err := os.CreateTemp("", "")
+		if err != nil {
+			log.Fatal("Could not open temp file:", err)
 		}
-	*/
+
+		tempFiles[i] = tempFile
+	}
+
+	// write key-value pairs to temp files
+	for _, kv := range kvs {
+		reduceIdx := ihash(kv.Key) % nReduce
+
+		fmt.Fprintf(tempFiles[reduceIdx], "%v %v\n", kv.Key, kv.Value)
+	}
+
+	// rename temp files to final versions
+	// format: mr-{map task id}-{reduce task id}
+	outputFilenameBase := "./mr-" + taskId + "-"
+	for i, tempFile := range tempFiles {
+		newName := outputFilenameBase + strconv.Itoa(i)
+		err := os.Rename(tempFile.Name(), newName)
+		if err != nil {
+			log.Fatal("Failed to rename temp file ", tempFile.Name(), " to ", newName, ": ", err)
+		}
+	}
 }
 
 func reduceFiles(reducef func(string, []string) string, inputFiles []string) {

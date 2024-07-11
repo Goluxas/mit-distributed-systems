@@ -32,6 +32,7 @@ type GetTaskArgs struct {
 type GetTaskReply struct {
 	Error      string
 	TaskType   string
+	TaskID     string
 	InputFiles []string
 	NReduce    int
 }
