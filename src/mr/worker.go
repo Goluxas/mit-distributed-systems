@@ -82,7 +82,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			Debug(dInfo, "W%v received MAP task %v for %v", workerId, getTaskReply.TaskID, getTaskReply.InputFiles)
 			mapFiles(mapf, getTaskReply.InputFiles, getTaskReply.NReduce, getTaskReply.TaskID)
 		} else if getTaskReply.TaskType == "REDUCE" {
-			Debug(dInfo, "W%v received REDUCE task %v", workerId, getTaskReply.TaskID)
+			Debug(dInfo, "W%v received REDUCE task %v for %v", workerId, getTaskReply.TaskID, getTaskReply.InputFiles)
 			reduceFiles(reducef, getTaskReply.InputFiles, getTaskReply.TaskID)
 		}
 
@@ -199,7 +199,9 @@ func reduceFiles(reducef func(string, []string) string, inputFiles []string, tas
 			}
 			values = append(values, kva[j].Value)
 		}
-		i = j
+		// off by one error because i increments at the end of the loop
+		// COULD replace i++ in the loop declaration with i=j but that is even weirder
+		i = j - 1
 
 		// Call reducef on each key
 		reduced := reducef(key, values)
