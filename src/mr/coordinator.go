@@ -28,7 +28,7 @@ type Coordinator struct {
 	mapNextId      int
 	mapDone        bool
 	reduceStatus   []InputStatus
-	reduceNextId   int
+	reduceFiles    [][]string
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -86,6 +86,7 @@ func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedRe
 	switch {
 	case args.TaskType == "MAP":
 		c.mapStatus[c.mapAssignments[taskId]] = "done"
+		c.sortIntermediateFiles(args.OutputFiles)
 		c.checkMapTasks()
 
 	case args.TaskType == "REDUCE":
@@ -93,6 +94,17 @@ func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedRe
 	}
 
 	return nil
+}
+
+func (c *Coordinator) sortIntermediateFiles(files []string) {
+	for _, filename := range files {
+		reduceJob, err := strconv.Atoi(filename[len(filename)-1:])
+		if err != nil {
+			log.Fatalf("Could not infer reduce job ID from filename: %v", filename)
+		}
+
+		c.reduceFiles[reduceJob] = append(c.reduceFiles[reduceJob], filename)
+	}
 }
 
 func (c *Coordinator) checkMapTasks() {
