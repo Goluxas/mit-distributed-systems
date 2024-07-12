@@ -20,14 +20,15 @@ type InputStatus string
 
 type Coordinator struct {
 	// Your definitions here.
-	mu           sync.Mutex
-	inputFiles   []string
-	nReduce      int
-	mapStatus    map[string]InputStatus
-	mapNextId    int
-	mapDone      bool
-	reduceStatus []InputStatus
-	reduceNextId int
+	mu             sync.Mutex
+	inputFiles     []string
+	nReduce        int
+	mapStatus      map[string]InputStatus
+	mapAssignments []string
+	mapNextId      int
+	mapDone        bool
+	reduceStatus   []InputStatus
+	reduceNextId   int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -36,13 +37,12 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	defer c.mu.Unlock()
 
 	// iterate over mapDone and return the first unstarted map task
-	mapTask := false
 	if !c.mapDone {
 		for filename, status := range c.mapStatus {
 			if status == "ready" {
 				// Coordinator tracking
 				c.mapStatus[filename] = "started"
-				mapTask = true
+				c.mapAssignments[c.mapNextId] = filename
 
 				// Reply for RPC
 				reply.TaskType = "MAP"
@@ -58,15 +58,7 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 
 	// if no map tasks are left to assign, check if mapping is done
-	if !mapTask {
-		mapDone := true
-		for _, status := range c.mapStatus {
-			if status != "done" {
-				mapDone = false
-			}
-		}
-		c.mapDone = mapDone
-	}
+	c.checkMapTasks()
 
 	// if mapping is done, assign a reduce task
 	if c.mapDone {
@@ -74,6 +66,44 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 
 	return nil
+}
+
+func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	taskId, err := strconv.Atoi(args.TaskID)
+	if err != nil {
+		log.Fatal("Invalid task ID in TaskFinished: ", args.TaskID, " -- ", err)
+	}
+
+	switch {
+	case args.TaskType == "MAP":
+		c.mapStatus[c.mapAssignments[taskId]] = "done"
+		c.checkMapTasks()
+
+	case args.TaskType == "REDUCE":
+		c.reduceStatus[taskId] = "done"
+	}
+
+	return nil
+}
+
+func (c *Coordinator) checkMapTasks() {
+	mapDone := true
+	for _, status := range c.mapStatus {
+		if status != "done" {
+			mapDone = false
+		}
+	}
+
+	c.mapDone = mapDone
+	/*
+		// TEMPORARY
+		if c.mapDone {
+			println("Mapping complete!")
+		}
+	*/
 }
 
 // an example RPC handler.
@@ -137,6 +167,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	for _, filename := range c.inputFiles {
 		c.mapStatus[filename] = "ready"
 	}
+	c.mapAssignments = make([]string, len(files))
 
 	c.reduceStatus = make([]InputStatus, nReduce)
 	for i := range c.reduceStatus {

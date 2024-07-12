@@ -62,10 +62,17 @@ func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce
 		kvs = append(kvs, newKvs...) // join two slices with ... expansion
 
 	}
-	writeMapOutput(kvs, nReduce, taskId)
+	outputFiles := writeMapOutput(kvs, nReduce, taskId)
+
+	args := TaskFinishedArgs{TaskType: "MAP", TaskID: taskId, OutputFiles: outputFiles}
+	reply := TaskFinishedReply{}
+	ok := call("Coordinator.TaskFinished", &args, &reply)
+	if !ok {
+		log.Fatal("Failed to report task completion")
+	}
 }
 
-func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) {
+func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) []string {
 	// open temp output files for writing
 	tempFiles := make([]*os.File, nReduce)
 	for i := 0; i < nReduce; i++ {
@@ -87,13 +94,17 @@ func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) {
 	// rename temp files to final versions
 	// format: mr-{map task id}-{reduce task id}
 	outputFilenameBase := "./mr-" + taskId + "-"
+	outputFilenames := []string{}
 	for i, tempFile := range tempFiles {
 		newName := outputFilenameBase + strconv.Itoa(i)
 		err := os.Rename(tempFile.Name(), newName)
 		if err != nil {
 			log.Fatal("Failed to rename temp file ", tempFile.Name(), " to ", newName, ": ", err)
 		}
+		outputFilenames = append(outputFilenames, newName)
 	}
+
+	return outputFilenames
 }
 
 func reduceFiles(reducef func(string, []string) string, inputFiles []string) {

@@ -37,6 +37,16 @@ type GetTaskReply struct {
 	NReduce    int
 }
 
+type TaskFinishedArgs struct {
+	TaskType    string
+	TaskID      string
+	OutputFiles []string
+}
+
+type TaskFinishedReply struct {
+	// none
+}
+
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
 // Can't use the current directory since
