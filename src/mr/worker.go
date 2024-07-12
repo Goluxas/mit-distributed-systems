@@ -7,7 +7,15 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
+	"time"
 )
+
+var workerId string
+
+func init() {
+	// Possibly not always unique, uses the last 3 digits of the current nanosecond
+	workerId = strconv.Itoa(time.Now().Nanosecond() % 1e3)
+}
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
@@ -34,6 +42,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	for {
 		// Ask coordinator for a task
+		Debug(dRpc, "W%v asking Coordinator for Task", workerId)
 		getTaskArgs := &GetTaskArgs{}
 		getTaskReply := &GetTaskReply{}
 		ok := call("Coordinator.GetTask", &getTaskArgs, &getTaskReply)
@@ -43,6 +52,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		// Execute assigned task
 		if getTaskReply.TaskType == "MAP" {
+			Debug(dInfo, "W%v received MAP task %v for %v", workerId, getTaskReply.TaskID, getTaskReply.InputFiles)
 			mapFiles(mapf, getTaskReply.InputFiles, getTaskReply.NReduce, getTaskReply.TaskID)
 		} else if getTaskReply.TaskType == "REDUCE" {
 			reduceFiles(reducef, getTaskReply.InputFiles)
@@ -64,6 +74,7 @@ func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce
 	}
 	outputFiles := writeMapOutput(kvs, nReduce, taskId)
 
+	Debug(dRpc, "W%v informing Coordinator of completion of Task %v", workerId, taskId)
 	args := TaskFinishedArgs{TaskType: "MAP", TaskID: taskId, OutputFiles: outputFiles}
 	reply := TaskFinishedReply{}
 	ok := call("Coordinator.TaskFinished", &args, &reply)
