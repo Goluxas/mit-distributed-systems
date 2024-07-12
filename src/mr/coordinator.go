@@ -8,9 +8,16 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type InputStatus string
+
+const (
+	iReady   InputStatus = "ready"
+	iStarted InputStatus = "started"
+	iDone    InputStatus = "done"
+)
 
 /*
   ready		= file waiting for a task
@@ -39,18 +46,23 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	// iterate over mapDone and return the first unstarted map task
 	if !c.mapDone {
 		for filename, status := range c.mapStatus {
-			if status == "ready" {
+			if status == iReady {
 				// Coordinator tracking
-				c.mapStatus[filename] = "started"
-				c.mapAssignments[c.mapNextId] = filename
+				c.mapStatus[filename] = iStarted
+				taskId := c.mapNextId
+				c.mapNextId++
+				//c.mapAssignments[taskId] = filename
+				// index should automatically match because we start mapNextId at 0 and only append here when assigning map tasks
+				c.mapAssignments = append(c.mapAssignments, filename)
 
 				// Reply for RPC
 				reply.TaskType = "MAP"
-				reply.TaskID = strconv.Itoa(c.mapNextId)
-				c.mapNextId++
+				reply.TaskID = strconv.Itoa(taskId)
 				reply.InputFiles = []string{filename}
 				reply.NReduce = c.nReduce
 				reply.Error = eNone
+
+				go c.healthCheck("MAP", taskId)
 
 				return nil
 			}
@@ -63,9 +75,9 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	// if mapping is done, assign a reduce task
 	if c.mapDone {
 		for reduceJob, status := range c.reduceStatus {
-			if status == "ready" {
+			if status == iReady {
 				// Coordinator tracking
-				c.reduceStatus[reduceJob] = "started"
+				c.reduceStatus[reduceJob] = iStarted
 
 				// RPC Reply
 				reply.TaskType = "REDUCE"
@@ -73,6 +85,8 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 				reply.InputFiles = c.reduceFiles[reduceJob]
 				reply.NReduce = c.nReduce
 				reply.Error = eNone
+
+				go c.healthCheck("REDUCE", reduceJob)
 
 				return nil
 			}
@@ -91,7 +105,30 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	}
 }
 
+func (c *Coordinator) healthCheck(taskType string, taskId int) {
+	// If the worker hasn't completed the task in 10 seconds, reassign it
+	time.Sleep(10 * time.Second)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch taskType {
+	case "MAP":
+		fileForTask := c.mapAssignments[taskId]
+		if c.mapStatus[fileForTask] != iDone {
+			// setting status back to ready allows us to reassign the task
+			c.mapStatus[fileForTask] = iReady
+		}
+	case "REDUCE":
+		if c.reduceStatus[taskId] != iDone {
+			c.reduceStatus[taskId] = iReady
+		}
+	}
+}
+
 func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedReply) error {
+	Debug(dRpc, "Coordinator received Task Finished message from %v Task %v with file(s) %v", args.TaskType, args.TaskID, args.OutputFiles)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -102,18 +139,32 @@ func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedRe
 
 	switch {
 	case args.TaskType == "MAP":
-		c.mapStatus[c.mapAssignments[taskId]] = "done"
-		c.sortIntermediateFiles(args.OutputFiles)
-		c.checkMapTasks()
+		// Only update status if the job was not finished
+		// (eg. task 1 was taking too long and got reassigned, but finished before the new worker's return which is now)
+		if c.mapStatus[c.mapAssignments[taskId]] != iDone {
+			c.mapStatus[c.mapAssignments[taskId]] = iDone
+			c.collateIntermediateFiles(args.OutputFiles)
+			c.checkMapTasks()
+		}
 
 	case args.TaskType == "REDUCE":
-		c.reduceStatus[taskId] = "done"
+		c.reduceStatus[taskId] = iDone
 	}
 
 	return nil
 }
 
-func (c *Coordinator) sortIntermediateFiles(files []string) {
+func (c *Coordinator) collateIntermediateFiles(files []string) {
+	// ONLY call from within a Locked context
+	Debug(dInfo, "Coordinator organizing intermediate files")
+
+	/*
+		DO NOT lock and unlock like this from within a nested function call.
+		We're still locked inside TaskFinished so this Lock() will deadlock
+		c.mu.Lock()
+		defer c.mu.Unlock()
+	*/
+
 	for _, filename := range files {
 		reduceJob, err := strconv.Atoi(filename[len(filename)-1:])
 		if err != nil {
@@ -125,9 +176,17 @@ func (c *Coordinator) sortIntermediateFiles(files []string) {
 }
 
 func (c *Coordinator) checkMapTasks() {
+	// ONLY call within a locked context
+	Debug(dInfo, "Coordinator checking if all map tasks are done")
+
+	/*
+		c.mu.Lock()
+		defer c.mu.Unlock()
+	*/
+
 	mapDone := true
 	for _, status := range c.mapStatus {
-		if status != "done" {
+		if status != iDone {
 			mapDone = false
 		}
 	}
@@ -171,7 +230,7 @@ func (c *Coordinator) Done() bool {
 	if c.mapDone {
 		ret = true
 		for _, status := range c.reduceStatus {
-			if status != "done" {
+			if status != iDone {
 				ret = false
 			}
 		}
@@ -192,14 +251,14 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 
 	c.mapStatus = make(map[string]InputStatus)
 	for _, filename := range c.inputFiles {
-		c.mapStatus[filename] = "ready"
+		c.mapStatus[filename] = iReady
 	}
-	c.mapAssignments = make([]string, len(files))
+	c.mapAssignments = []string{}
 
 	c.reduceStatus = make([]InputStatus, nReduce)
 	c.reduceFiles = make([][]string, nReduce)
 	for i := range c.reduceStatus {
-		c.reduceStatus[i] = "ready"
+		c.reduceStatus[i] = iReady
 	}
 
 	c.server()
