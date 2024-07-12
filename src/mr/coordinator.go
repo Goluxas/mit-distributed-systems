@@ -65,11 +65,12 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 		// TODO
 
 		// TEMPORARY
-		reply.Error = eDone
 	} else {
+		// Reduce tasks are coming, please wait
 		reply.Error = eWait
 	}
 
+	reply.Error = eDone
 	return nil
 }
 

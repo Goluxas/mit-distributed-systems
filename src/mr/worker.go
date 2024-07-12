@@ -14,7 +14,7 @@ var workerId string
 
 func init() {
 	// Possibly not always unique, uses the last 3 digits of the current nanosecond
-	workerId = strconv.Itoa(time.Now().Nanosecond() % 1e3)
+	workerId = fmt.Sprintf("%03d", time.Now().Nanosecond()%1e3)
 }
 
 // Map functions return a slice of KeyValue.
@@ -50,13 +50,20 @@ func Worker(mapf func(string, string) []KeyValue,
 			log.Fatal("Failed RPC call")
 		}
 
+		/*
+			NOTE:
+			When I didn't have the Coordinator return WAIT or DONE messages, this loop would execute
+			hundreds of times per worker while a Map job was still in process, eventually overwhelming the socket
+		*/
 		if getTaskReply.Error == eWait {
+			Debug(dInfo, "W%v waiting before next task request.", workerId)
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
 		if getTaskReply.Error == eDone {
 			// No more tasks. You may rest, son
+			Debug(dInfo, "W%v no tasks left. Shutting down.", workerId)
 			return
 		}
 
