@@ -62,7 +62,21 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 
 	// if mapping is done, assign a reduce task
 	if c.mapDone {
-		// TODO
+		for reduceJob, status := range c.reduceStatus {
+			if status == "ready" {
+				// Coordinator tracking
+				c.reduceStatus[reduceJob] = "started"
+
+				// RPC Reply
+				reply.TaskType = "REDUCE"
+				reply.TaskID = strconv.Itoa(reduceJob)
+				reply.InputFiles = c.reduceFiles[reduceJob]
+				reply.NReduce = c.nReduce
+				reply.Error = eNone
+
+				return nil
+			}
+		}
 
 		// TEMPORARY
 	} else {
@@ -188,6 +202,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.mapAssignments = make([]string, len(files))
 
 	c.reduceStatus = make([]InputStatus, nReduce)
+	c.reduceFiles = make([][]string, nReduce)
 	for i := range c.reduceStatus {
 		c.reduceStatus[i] = "ready"
 	}
