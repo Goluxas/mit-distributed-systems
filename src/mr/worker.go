@@ -102,7 +102,7 @@ func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce
 	}
 	outputFiles := writeMapOutput(kvs, nReduce, taskId)
 
-	Debug(dRpc, "W%v informing Coordinator of completion of Task %v", workerId, taskId)
+	Debug(dRpc, "W%v notifying Coordinator of MAP task %v completion", workerId, taskId)
 	args := TaskFinishedArgs{TaskType: "MAP", TaskID: taskId, OutputFiles: outputFiles}
 	reply := TaskFinishedReply{}
 	ok := call("Coordinator.TaskFinished", &args, &reply)
@@ -114,6 +114,7 @@ func mapFiles(mapf func(string, string) []KeyValue, inputFiles []string, nReduce
 func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) []string {
 	// open temp output files for writing
 	tempFiles := make([]*os.File, nReduce)
+	encs := make([]*json.Encoder, nReduce)
 	for i := 0; i < nReduce; i++ {
 		tempFile, err := os.CreateTemp("", "")
 		if err != nil {
@@ -121,13 +122,21 @@ func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) []string {
 		}
 
 		tempFiles[i] = tempFile
+		encs[i] = json.NewEncoder(tempFile)
 	}
 
 	// write key-value pairs to temp files
 	for _, kv := range kvs {
 		reduceIdx := ihash(kv.Key) % nReduce
 
-		fmt.Fprintf(tempFiles[reduceIdx], "%v %v\n", kv.Key, kv.Value)
+		//fmt.Fprintf(tempFiles[reduceIdx], "%v %v\n", kv.Key, kv.Value)
+		if err := encs[reduceIdx].Encode(&kv); err != nil {
+			log.Fatalf("Could not JSON Encode value (%v: %v). %v", kv.Key, kv.Value, err)
+		}
+	}
+
+	for _, file := range tempFiles {
+		file.Close()
 	}
 
 	// rename temp files to final versions
@@ -195,10 +204,10 @@ func reduceFiles(reducef func(string, []string) string, inputFiles []string, tas
 		// Call reducef on each key
 		reduced := reducef(key, values)
 		// write each return of reducef to output file
-		fmt.Fprintf(outFile, "%v %v", key, reduced)
+		fmt.Fprintf(outFile, "%v %v\n", key, reduced)
 	}
 
-	Debug(dRpc, "W%v notifying Coordinator of reduce task %v completion", workerId, taskId)
+	Debug(dRpc, "W%v notifying Coordinator of REDUCE task %v completion", workerId, taskId)
 	args := TaskFinishedArgs{
 		TaskType:    "REDUCE",
 		TaskID:      taskId,
