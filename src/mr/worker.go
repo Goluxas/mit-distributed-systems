@@ -1,11 +1,13 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -22,6 +24,14 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -72,7 +82,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			Debug(dInfo, "W%v received MAP task %v for %v", workerId, getTaskReply.TaskID, getTaskReply.InputFiles)
 			mapFiles(mapf, getTaskReply.InputFiles, getTaskReply.NReduce, getTaskReply.TaskID)
 		} else if getTaskReply.TaskType == "REDUCE" {
-			reduceFiles(reducef, getTaskReply.InputFiles)
+			Debug(dInfo, "W%v received REDUCE task %v", workerId, getTaskReply.TaskID)
+			reduceFiles(reducef, getTaskReply.InputFiles, getTaskReply.TaskID)
 		}
 
 	}
@@ -135,7 +146,69 @@ func writeMapOutput(kvs []KeyValue, nReduce int, taskId string) []string {
 	return outputFilenames
 }
 
-func reduceFiles(reducef func(string, []string) string, inputFiles []string) {
+func reduceFiles(reducef func(string, []string) string, inputFiles []string, taskId string) {
+	// Create output file
+	ofileName := fmt.Sprintf("mr-out-%v", taskId)
+	outFile, err := os.Create(ofileName)
+	if err != nil {
+		log.Fatalf("Could not create file %v. %v")
+	}
+
+	// Read all files in
+	kva := []KeyValue{}
+	for _, filename := range inputFiles {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("Could not open file %v. %v", filename, err)
+		}
+
+		dec := json.NewDecoder(file)
+		// dec.More() is true if there are additional values to read
+		for dec.More() {
+			kv := KeyValue{}
+			if err := dec.Decode(&kv); err != nil {
+				log.Fatalf("Error decoding JSON value. %v", err)
+			}
+			kva = append(kva, kv)
+		}
+
+		file.Close()
+	}
+
+	// Sort by key
+	sort.Sort(ByKey(kva))
+
+	for i := 0; i < len(kva); i++ {
+		key := kva[i].Key
+
+		// declaring j outside the for loop lets us use it beyond the for loop scope
+		var j int
+		values := []string{}
+		for j = i; j < len(kva); j++ {
+			if kva[j].Key != key {
+				break
+			}
+			values = append(values, kva[j].Value)
+		}
+		i = j
+
+		// Call reducef on each key
+		reduced := reducef(key, values)
+		// write each return of reducef to output file
+		fmt.Fprintf(outFile, "%v %v", key, reduced)
+	}
+
+	Debug(dRpc, "W%v notifying Coordinator of reduce task %v completion", workerId, taskId)
+	args := TaskFinishedArgs{
+		TaskType:    "REDUCE",
+		TaskID:      taskId,
+		OutputFiles: []string{ofileName},
+	}
+	reply := TaskFinishedReply{}
+	ok := call("Coordinator.TaskFinished", &args, &reply)
+	if !ok {
+		log.Fatal("RPC error")
+	}
 
 }
 
