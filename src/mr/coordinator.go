@@ -50,7 +50,7 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 				c.mapNextId++
 				reply.InputFiles = []string{filename}
 				reply.NReduce = c.nReduce
-				reply.Error = ""
+				reply.Error = eNone
 
 				return nil
 			}
@@ -63,6 +63,11 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	// if mapping is done, assign a reduce task
 	if c.mapDone {
 		// TODO
+
+		// TEMPORARY
+		reply.Error = eDone
+	} else {
+		reply.Error = eWait
 	}
 
 	return nil

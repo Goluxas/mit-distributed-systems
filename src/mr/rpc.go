@@ -25,12 +25,21 @@ type ExampleReply struct {
 }
 
 // Add your RPC definitions here.
+type GetTaskError string
+
+const (
+	eWait GetTaskError = "WAIT"
+	eDone GetTaskError = "DONE"
+	eErr  GetTaskError = "ERROR"
+	eNone GetTaskError = ""
+)
+
 type GetTaskArgs struct {
 	// none
 }
 
 type GetTaskReply struct {
-	Error      string
+	Error      GetTaskError
 	TaskType   string
 	TaskID     string
 	InputFiles []string

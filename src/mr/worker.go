@@ -46,8 +46,18 @@ func Worker(mapf func(string, string) []KeyValue,
 		getTaskArgs := &GetTaskArgs{}
 		getTaskReply := &GetTaskReply{}
 		ok := call("Coordinator.GetTask", &getTaskArgs, &getTaskReply)
-		if !ok || getTaskReply.Error != "" {
-			log.Fatal("Task failed! RPC Error: ", getTaskReply.Error)
+		if !ok {
+			log.Fatal("Failed RPC call")
+		}
+
+		if getTaskReply.Error == eWait {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		if getTaskReply.Error == eDone {
+			// No more tasks. You may rest, son
+			return
 		}
 
 		// Execute assigned task
