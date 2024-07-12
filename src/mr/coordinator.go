@@ -78,14 +78,17 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 			}
 		}
 
+		// If we got here, all reduce tasks are currently taken
 		// TEMPORARY
+		// TODO - check for hanging tasks and reassign instead of assuming we're done
+		reply.Error = eDone
+		return nil
+
 	} else {
 		// Reduce tasks are coming, please wait
 		reply.Error = eWait
+		return nil
 	}
-
-	reply.Error = eDone
-	return nil
 }
 
 func (c *Coordinator) TaskFinished(args *TaskFinishedArgs, reply *TaskFinishedReply) error {
@@ -130,12 +133,6 @@ func (c *Coordinator) checkMapTasks() {
 	}
 
 	c.mapDone = mapDone
-	/*
-		// TEMPORARY
-		if c.mapDone {
-			println("Mapping complete!")
-		}
-	*/
 }
 
 // an example RPC handler.
@@ -168,19 +165,17 @@ func (c *Coordinator) Done() bool {
 	// Your code here.
 
 	// TEMPORARY
-	ret = c.mapDone
+	//ret = c.mapDone
 
-	/*
-		// ACTUAL -- if mapping is done and reducing is done then we're all done
-		if c.mapDone {
-			ret = true
-			for _, status := range c.reduceStatus {
-				if status != "done" {
-					ret = false
-				}
+	// ACTUAL -- if mapping is done and reducing is done then we're all done
+	if c.mapDone {
+		ret = true
+		for _, status := range c.reduceStatus {
+			if status != "done" {
+				ret = false
 			}
 		}
-	*/
+	}
 
 	return ret
 }
