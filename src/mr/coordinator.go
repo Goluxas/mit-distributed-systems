@@ -93,7 +93,7 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 		}
 
 		// If we got here, all reduce tasks are currently taken
-		if c.Done() {
+		if c.done() {
 			// If we're all done, tell the worker to exit
 			reply.Error = eDone
 		} else {
@@ -219,17 +219,10 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-// main/mrcoordinator.go calls Done() periodically to find out
-// if the entire job has finished.
-func (c *Coordinator) Done() bool {
+func (c *Coordinator) done() bool {
+	// ONLY call within a locked context
 	ret := false
 
-	// Your code here.
-
-	// TEMPORARY
-	//ret = c.mapDone
-
-	// ACTUAL -- if mapping is done and reducing is done then we're all done
 	if c.mapDone {
 		ret = true
 		for _, status := range c.reduceStatus {
@@ -240,6 +233,15 @@ func (c *Coordinator) Done() bool {
 	}
 
 	return ret
+}
+
+// main/mrcoordinator.go calls Done() periodically to find out
+// if the entire job has finished.
+func (c *Coordinator) Done() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.done()
 }
 
 // create a Coordinator.
