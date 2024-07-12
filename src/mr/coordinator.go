@@ -93,9 +93,12 @@ func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 		}
 
 		// If we got here, all reduce tasks are currently taken
-		// TEMPORARY
-		// TODO - check for hanging tasks and reassign instead of assuming we're done
-		reply.Error = eDone
+		if c.Done() {
+			// If we're all done, tell the worker to exit
+			reply.Error = eDone
+		} else {
+			reply.Error = eWait
+		}
 		return nil
 
 	} else {
